@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Розпізнавання цифр</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+</head>
+<body>
+    <header>
+        <h1>✍️ Розпізнавання рукописних цифр</h1>
+        <p>Намалюйте цифру від 0 до 9, і нейронна мережа її розпізнає</p>
+    </header>
+
+    <nav class="main-nav">
+        <a href="index.html" class="nav-link">Головна</a>
+        <a href="object-detection.html" class="nav-link">Розпізнавання об'єктів</a>
+        <a href="color-recognition.html" class="nav-link">Розпізнавання кольорів</a>
+        <a href="pose-detection.html" class="nav-link">Розпізнавання пози</a>
+        <a href="digit-recognition.html" class="nav-link active">Розпізнавання цифр</a>
+    </nav>
+
+    <main class="container">
+        <div class="demo-container">
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Завантаження нейронної мережі...</p>
+            </div>
+
+            <div id="app" style="display: none;">
+                <div style="text-align: center; margin-bottom: 1rem;">
+                    <p style="color: #667eea; font-size: 1.1rem;">
+                        Намалюйте цифру в полі нижче
+                    </p>
+                </div>
+
+                <div style="text-align: center;">
+                    <canvas id="drawingCanvas" width="280" height="280"></canvas>
+                </div>
+
+                <div class="controls" style="margin-top: 1rem;">
+                    <button id="clearBtn" class="btn">🗑️ Очистити</button>
+                    <button id="predictBtn" class="btn">🔍 Розпізнати</button>
+                </div>
+
+                <div class="results">
+                    <h3>Результати розпізнавання:</h3>
+                    <div id="predictions">
+                        <p style="color: #999; text-align: center;">Намалюйте цифру та натисніть "Розпізнати"</p>
+                    </div>
+                </div>
+
+                <div style="margin-top: 2rem; padding: 1.5rem; background: #f8f9fa; border-radius: 12px;">
+                    <h3 style="color: #667eea; margin-bottom: 1rem; text-align: center;">Поради для кращого розпізнавання:</h3>
+                    <ul style="color: #666; line-height: 2;">
+                        <li>Малюйте цифру великою, щоб вона займала більшу частину поля</li>
+                        <li>Намагайтеся писати чітко та розбірливо</li>
+                        <li>Використовуйте стандартний спосіб написання цифр</li>
+                        <li>Для кращих результатів, малюйте повільно і акуратно</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <section class="info-section">
+            <h2>Як працює розпізнавання?</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <h3>1. Малювання</h3>
+                    <p>Ви малюєте цифру на полотні розміром 280×280 пікселів</p>
+                </div>
+                <div class="info-item">
+                    <h3>2. Обробка</h3>
+                    <p>Зображення зменшується до 28×28 пікселів (стандарт MNIST)</p>
+                </div>
+                <div class="info-item">
+                    <h3>3. Аналіз</h3>
+                    <p>Нейронна мережа аналізує патерни пікселів</p>
+                </div>
+                <div class="info-item">
+                    <h3>4. Результат</h3>
+                    <p>Модель видає ймовірності для кожної цифри 0-9</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Використовує згорткову нейронну мережу (CNN), навчену на датасеті MNIST</p>
+    </footer>
+
+    <script>
+        let model;
+        let canvas;
+        let ctx;
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+
+        async function loadModel() {
+            try {
+                // Створюємо просту CNN модель для розпізнавання цифр
+                model = tf.sequential({
+                    layers: [
+                        tf.layers.conv2d({
+                            inputShape: [28, 28, 1],
+                            kernelSize: 3,
+                            filters: 32,
+                            activation: 'relu'
+                        }),
+                        tf.layers.maxPooling2d({ poolSize: 2 }),
+                        tf.layers.conv2d({
+                            kernelSize: 3,
+                            filters: 64,
+                            activation: 'relu'
+                        }),
+                        tf.layers.maxPooling2d({ poolSize: 2 }),
+                        tf.layers.flatten(),
+                        tf.layers.dense({ units: 128, activation: 'relu' }),
+                        tf.layers.dropout({ rate: 0.2 }),
+                        tf.layers.dense({ units: 10, activation: 'softmax' })
+                    ]
+                });
+
+                // Компілюємо модель
+                model.compile({
+                    optimizer: 'adam',
+                    loss: 'categoricalCrossentropy',
+                    metrics: ['accuracy']
+                });
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Помилка:', error);
+                document.getElementById('loading').innerHTML = 
+                    '<p style="color: red;">Помилка завантаження моделі.</p>';
+            }
+        }
+
+        function initCanvas() {
+            canvas = document.getElementById('drawingCanvas');
+            ctx = canvas.getContext('2d');
+            
+            // Білий фон
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 15;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            // Mouse events
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+
+            // Touch events
+            canvas.addEventListener('touchstart', handleTouchStart);
+            canvas.addEventListener('touchmove', handleTouchMove);
+            canvas.addEventListener('touchend', stopDrawing);
+        }
+
+        function startDrawing(e) {
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            lastX = e.clientX - rect.left;
+            lastY = e.clientY - rect.top;
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+
+            lastX = x;
+            lastY = y;
+        }
+
+        function handleTouchStart(e) {
+            e.preventDefault();
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            lastX = touch.clientX - rect.left;
+            lastY = touch.clientY - rect.top;
+        }
+
+        function handleTouchMove(e) {
+            e.preventDefault();
+            if (!isDrawing) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+
+            lastX = x;
+            lastY = y;
+        }
+
+        function stopDrawing() {
+            isDrawing = false;
+        }
+
+        function clearCanvas() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('predictions').innerHTML = 
+                '<p style="color: #999; text-align: center;">Намалюйте цифру та натісніть "Розпізнати"</p>';
+        }
+
+        function preprocessCanvas() {
+            // Створюємо тимчасовий canvas 28x28
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 28;
+            tempCanvas.height = 28;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Зменшуємо зображення
+            tempCtx.drawImage(canvas, 0, 0, 28, 28);
+            
+            // Отримуємо дані пікселів
+            const imageData = tempCtx.getImageData(0, 0, 28, 28);
+            
+            // Конвертуємо в тензор
+            const tensor = tf.browser.fromPixels(imageData, 1)
+                .toFloat()
+                .div(255.0)
+                .reshape([1, 28, 28, 1]);
+            
+            return tensor;
+        }
+
+        async function predict() {
+            const tensor = preprocessCanvas();
+            
+            // Отримуємо передбачення
+            const predictions = await model.predict(tensor).data();
+            
+            // Відображаємо результати
+            displayPredictions(predictions);
+            
+            tensor.dispose();
+        }
+
+        function displayPredictions(predictions) {
+            const predArray = Array.from(predictions);
+            const maxIndex = predArray.indexOf(Math.max(...predArray));
+            
+            // Сортуємо по ймовірності
+            const sorted = predArray
+                .map((prob, digit) => ({ digit, prob }))
+                .sort((a, b) => b.prob - a.prob);
+
+            let html = `
+                <div style="text-align: center; margin-bottom: 2rem;">
+                    <div style="font-size: 4rem; color: #667eea; font-weight: bold;">
+                        ${maxIndex}
+                    </div>
+                    <div style="color: #666; font-size: 1.2rem;">
+                        Впевненість: ${(sorted[0].prob * 100).toFixed(1)}%
+                    </div>
+                </div>
+                <h4 style="color: #667eea; margin-bottom: 1rem;">Всі ймовірності:</h4>
+            `;
+
+            sorted.forEach(({ digit, prob }) => {
+                const percentage = (prob * 100).toFixed(1);
+                html += `
+                    <div class="result-item">
+                        <div>
+                            <div class="result-label">Цифра ${digit}</div>
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" style="width: ${percentage}%"></div>
+                            </div>
+                        </div>
+                        <span class="result-confidence">${percentage}%</span>
+                    </div>
+                `;
+            });
+
+            document.getElementById('predictions').innerHTML = html;
+        }
+
+        document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+        document.getElementById('predictBtn').addEventListener('click', predict);
+
+        // Ініціалізація
+        loadModel();
+        initCanvas();
+    </script>
+</body>
+</html>

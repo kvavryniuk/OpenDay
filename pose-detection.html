@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Розпізнавання пози</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet@2.2.2"></script>
+</head>
+<body>
+    <header>
+        <h1>🤸 Розпізнавання пози тіла</h1>
+        <p>Відстежуйте 17 ключових точок вашого тіла в реальному часі</p>
+    </header>
+
+    <nav class="main-nav">
+        <a href="index.html" class="nav-link">Головна</a>
+        <a href="object-detection.html" class="nav-link">Розпізнавання об'єктів</a>
+        <a href="color-recognition.html" class="nav-link">Розпізнавання кольорів</a>
+        <a href="pose-detection.html" class="nav-link active">Розпізнавання пози</a>
+        <a href="digit-recognition.html" class="nav-link">Розпізнавання цифр</a>
+    </nav>
+
+    <main class="container">
+        <div class="demo-container">
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Завантаження моделі PoseNet...</p>
+            </div>
+
+            <div id="app" style="display: none;">
+                <div class="controls">
+                    <button id="startBtn" class="btn">📷 Увімкнути камеру</button>
+                    <button id="stopBtn" class="btn" style="display: none;">⏸️ Зупинити</button>
+                    <label style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="showSkeleton" checked>
+                        <span>Показати скелет</span>
+                    </label>
+                </div>
+
+                <div class="video-container">
+                    <video id="webcam" autoplay playsinline></video>
+                    <canvas id="canvas"></canvas>
+                </div>
+
+                <div class="results">
+                    <h3>Статистика пози:</h3>
+                    <div id="poseInfo">
+                        <p style="color: #999;">Станьте перед камерою, щоб почати відстеження</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section class="info-section">
+            <h2>Які точки відстежуються?</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; text-align: left; color: #666;">
+                <div>
+                    <strong style="color: #667eea;">Голова:</strong>
+                    <p>• Ніс<br>• Ліве око<br>• Праве око<br>• Ліве вухо<br>• Праве вухо</p>
+                </div>
+                <div>
+                    <strong style="color: #667eea;">Тулуб:</strong>
+                    <p>• Ліве плече<br>• Праве плече<br>• Ліве стегно<br>• Праве стегно</p>
+                </div>
+                <div>
+                    <strong style="color: #667eea;">Руки:</strong>
+                    <p>• Лівий лікоть<br>• Правий лікоть<br>• Ліве зап'ястя<br>• Праве зап'ястя</p>
+                </div>
+                <div>
+                    <strong style="color: #667eea;">Ноги:</strong>
+                    <p>• Ліве коліно<br>• Праве коліно<br>• Ліва щиколотка<br>• Права щиколотка</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Використовує TensorFlow.js та модель PoseNet</p>
+    </footer>
+
+    <script>
+        let net;
+        let video;
+        let canvas;
+        let ctx;
+        let isDetecting = false;
+        let showSkeleton = true;
+
+        const keypointNames = {
+            'nose': 'Ніс',
+            'leftEye': 'Ліве око',
+            'rightEye': 'Праве око',
+            'leftEar': 'Ліве вухо',
+            'rightEar': 'Праве вухо',
+            'leftShoulder': 'Ліве плече',
+            'rightShoulder': 'Праве плече',
+            'leftElbow': 'Лівий лікоть',
+            'rightElbow': 'Правий лікоть',
+            'leftWrist': 'Ліве зап\'ястя',
+            'rightWrist': 'Праве зап\'ястя',
+            'leftHip': 'Ліве стегно',
+            'rightHip': 'Праве стегно',
+            'leftKnee': 'Ліве коліно',
+            'rightKnee': 'Праве коліно',
+            'leftAnkle': 'Ліва щиколотка',
+            'rightAnkle': 'Права щиколотка'
+        };
+
+        const adjacentKeyPoints = [
+            ['leftShoulder', 'rightShoulder'],
+            ['leftShoulder', 'leftElbow'],
+            ['leftElbow', 'leftWrist'],
+            ['rightShoulder', 'rightElbow'],
+            ['rightElbow', 'rightWrist'],
+            ['leftShoulder', 'leftHip'],
+            ['rightShoulder', 'rightHip'],
+            ['leftHip', 'rightHip'],
+            ['leftHip', 'leftKnee'],
+            ['leftKnee', 'leftAnkle'],
+            ['rightHip', 'rightKnee'],
+            ['rightKnee', 'rightAnkle'],
+            ['nose', 'leftEye'],
+            ['nose', 'rightEye'],
+            ['leftEye', 'leftEar'],
+            ['rightEye', 'rightEar']
+        ];
+
+        async function loadModel() {
+            try {
+                net = await posenet.load({
+                    architecture: 'MobileNetV1',
+                    outputStride: 16,
+                    inputResolution: { width: 640, height: 480 },
+                    multiplier: 0.75
+                });
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+            } catch (error) {
+                document.getElementById('loading').innerHTML = 
+                    '<p style="color: red;">Помилка завантаження моделі. Перевірте підключення до інтернету.</p>';
+            }
+        }
+
+        async function setupCamera() {
+            video = document.getElementById('webcam');
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'user',
+                        width: 640,
+                        height: 480
+                    },
+                    audio: false 
+                });
+                video.srcObject = stream;
+                
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        resolve(video);
+                    };
+                });
+            } catch (error) {
+                alert('Не вдалося отримати доступ до камери.');
+                throw error;
+            }
+        }
+
+        function drawKeypoints(keypoints) {
+            keypoints.forEach(keypoint => {
+                if (keypoint.score > 0.5) {
+                    ctx.beginPath();
+                    ctx.arc(keypoint.position.x, keypoint.position.y, 8, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#00ff00';
+                    ctx.fill();
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            });
+        }
+
+        function drawSkeleton(keypoints) {
+            if (!showSkeleton) return;
+
+            const keypointDict = {};
+            keypoints.forEach(kp => {
+                keypointDict[kp.part] = kp;
+            });
+
+            adjacentKeyPoints.forEach(([partA, partB]) => {
+                const kpA = keypointDict[partA];
+                const kpB = keypointDict[partB];
+
+                if (kpA && kpB && kpA.score > 0.5 && kpB.score > 0.5) {
+                    ctx.beginPath();
+                    ctx.moveTo(kpA.position.x, kpA.position.y);
+                    ctx.lineTo(kpB.position.x, kpB.position.y);
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                }
+            });
+        }
+
+        function displayPoseInfo(pose) {
+            const poseInfoDiv = document.getElementById('poseInfo');
+            
+            if (!pose) {
+                poseInfoDiv.innerHTML = '<p style="color: #999;">Людину не знайдено</p>';
+                return;
+            }
+
+            const visibleKeypoints = pose.keypoints.filter(kp => kp.score > 0.5);
+            const avgConfidence = (visibleKeypoints.reduce((sum, kp) => sum + kp.score, 0) / visibleKeypoints.length * 100).toFixed(1);
+
+            let html = `
+                <div class="result-item">
+                    <div class="result-label">Впевненість розпізнавання</div>
+                    <div class="result-confidence">${avgConfidence}%</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Видимих точок</div>
+                    <div class="result-confidence">${visibleKeypoints.length} / 17</div>
+                </div>
+            `;
+
+            // Показуємо топ-5 найбільш впевнених точок
+            const topKeypoints = [...pose.keypoints]
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 5);
+
+            html += '<div style="margin-top: 1rem;"><strong>Найкраще розпізнані точки:</strong></div>';
+            topKeypoints.forEach(kp => {
+                html += `
+                    <div class="result-item">
+                        <div class="result-label">${keypointNames[kp.part] || kp.part}</div>
+                        <div class="result-confidence">${(kp.score * 100).toFixed(1)}%</div>
+                    </div>
+                `;
+            });
+
+            poseInfoDiv.innerHTML = html;
+        }
+
+        async function detectPose() {
+            if (!isDetecting) return;
+
+            const pose = await net.estimateSinglePose(video, {
+                flipHorizontal: true
+            });
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (pose && pose.score > 0.3) {
+                drawSkeleton(pose.keypoints);
+                drawKeypoints(pose.keypoints);
+                displayPoseInfo(pose);
+            } else {
+                displayPoseInfo(null);
+            }
+
+            requestAnimationFrame(detectPose);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            await setupCamera();
+            isDetecting = true;
+            detectPose();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-block';
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            isDetecting = false;
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('startBtn').style.display = 'inline-block';
+            document.getElementById('stopBtn').style.display = 'none';
+        });
+
+        document.getElementById('showSkeleton').addEventListener('change', (e) => {
+            showSkeleton = e.target.checked;
+        });
+
+        loadModel();
+    </script>
+</body>
+</html>

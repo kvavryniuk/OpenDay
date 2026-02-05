@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Розпізнавання об'єктів</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
+</head>
+<body>
+    <header>
+        <h1>📦 Розпізнавання об'єктів</h1>
+        <p>Нейронна мережа COCO-SSD визначає 80 типів об'єктів</p>
+    </header>
+
+    <nav class="main-nav">
+        <a href="index.html" class="nav-link">Головна</a>
+        <a href="object-detection.html" class="nav-link active">Розпізнавання об'єктів</a>
+        <a href="color-recognition.html" class="nav-link">Розпізнавання кольорів</a>
+        <a href="pose-detection.html" class="nav-link">Розпізнавання пози</a>
+        <a href="digit-recognition.html" class="nav-link">Розпізнавання цифр</a>
+    </nav>
+
+    <main class="container">
+        <div class="demo-container">
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Завантаження моделі нейронної мережі...</p>
+            </div>
+
+            <div id="app" style="display: none;">
+                <div class="controls">
+                    <button id="startBtn" class="btn">📷 Увімкнути камеру</button>
+                    <button id="stopBtn" class="btn" style="display: none;">⏸️ Зупинити</button>
+                    <input type="file" id="uploadImage" accept="image/*" style="display: none;">
+                    <button id="uploadBtn" class="btn">🖼️ Завантажити фото</button>
+                </div>
+
+                <div class="video-container">
+                    <video id="webcam" autoplay playsinline></video>
+                    <canvas id="canvas"></canvas>
+                </div>
+
+                <div class="results">
+                    <h3>Знайдені об'єкти:</h3>
+                    <div id="predictions">
+                        <p style="color: #999;">Об'єкти з'являться тут після аналізу зображення</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section class="info-section">
+            <h2>Що може розпізнати модель?</h2>
+            <p style="text-align: center; color: #666; margin-bottom: 1rem;">
+                Нейронна мережа навчена на датасеті COCO (Common Objects in Context) і може визначити такі об'єкти:
+            </p>
+            <div style="columns: 3; column-gap: 2rem; text-align: left; color: #666;">
+                <p>• Людина (person)</p>
+                <p>• Велосипед (bicycle)</p>
+                <p>• Автомобіль (car)</p>
+                <p>• Мотоцикл (motorcycle)</p>
+                <p>• Літак (airplane)</p>
+                <p>• Автобус (bus)</p>
+                <p>• Потяг (train)</p>
+                <p>• Вантажівка (truck)</p>
+                <p>• Човен (boat)</p>
+                <p>• Кіт (cat)</p>
+                <p>• Собака (dog)</p>
+                <p>• Стілець (chair)</p>
+                <p>• Диван (couch)</p>
+                <p>• Ноутбук (laptop)</p>
+                <p>• Мобільний телефон (cell phone)</p>
+                <p>• Книга (book)</p>
+                <p>• Чашка (cup)</p>
+                <p>• Клавіатура (keyboard)</p>
+                <p>• Миша (mouse)</p>
+                <p>• І багато іншого...</p>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Використовує TensorFlow.js та модель COCO-SSD</p>
+    </footer>
+
+    <script>
+        let model;
+        let video;
+        let canvas;
+        let ctx;
+        let isDetecting = false;
+
+        const objectTranslations = {
+            'person': 'Людина',
+            'bicycle': 'Велосипед',
+            'car': 'Автомобіль',
+            'motorcycle': 'Мотоцикл',
+            'airplane': 'Літак',
+            'bus': 'Автобус',
+            'train': 'Потяг',
+            'truck': 'Вантажівка',
+            'boat': 'Човен',
+            'traffic light': 'Світлофор',
+            'fire hydrant': 'Пожежний гідрант',
+            'stop sign': 'Знак стоп',
+            'parking meter': 'Паркомат',
+            'bench': 'Лавка',
+            'bird': 'Птах',
+            'cat': 'Кіт',
+            'dog': 'Собака',
+            'horse': 'Кінь',
+            'sheep': 'Вівця',
+            'cow': 'Корова',
+            'elephant': 'Слон',
+            'bear': 'Ведмідь',
+            'zebra': 'Зебра',
+            'giraffe': 'Жирафа',
+            'backpack': 'Рюкзак',
+            'umbrella': 'Парасолька',
+            'handbag': 'Сумка',
+            'tie': 'Краватка',
+            'suitcase': 'Валіза',
+            'frisbee': 'Фрісбі',
+            'skis': 'Лижі',
+            'snowboard': 'Сноуборд',
+            'sports ball': 'М\'яч',
+            'kite': 'Повітряний змій',
+            'baseball bat': 'Бейсбольна бита',
+            'baseball glove': 'Бейсбольна рукавиця',
+            'skateboard': 'Скейтборд',
+            'surfboard': 'Дошка для серфінгу',
+            'tennis racket': 'Тенісна ракетка',
+            'bottle': 'Пляшка',
+            'wine glass': 'Келих',
+            'cup': 'Чашка',
+            'fork': 'Виделка',
+            'knife': 'Ніж',
+            'spoon': 'Ложка',
+            'bowl': 'Миска',
+            'banana': 'Банан',
+            'apple': 'Яблуко',
+            'sandwich': 'Сендвіч',
+            'orange': 'Апельсин',
+            'broccoli': 'Брокколі',
+            'carrot': 'Морква',
+            'hot dog': 'Хот-дог',
+            'pizza': 'Піца',
+            'donut': 'Пончик',
+            'cake': 'Торт',
+            'chair': 'Стілець',
+            'couch': 'Диван',
+            'potted plant': 'Рослина в горщику',
+            'bed': 'Ліжко',
+            'dining table': 'Обідній стіл',
+            'toilet': 'Туалет',
+            'tv': 'Телевізор',
+            'laptop': 'Ноутбук',
+            'mouse': 'Миша',
+            'remote': 'Пульт',
+            'keyboard': 'Клавіатура',
+            'cell phone': 'Мобільний телефон',
+            'microwave': 'Мікрохвильовка',
+            'oven': 'Духовка',
+            'toaster': 'Тостер',
+            'sink': 'Раковина',
+            'refrigerator': 'Холодильник',
+            'book': 'Книга',
+            'clock': 'Годинник',
+            'vase': 'Ваза',
+            'scissors': 'Ножиці',
+            'teddy bear': 'Плюшевий ведмідь',
+            'hair drier': 'Фен',
+            'toothbrush': 'Зубна щітка'
+        };
+
+        async function loadModel() {
+            try {
+                model = await cocoSsd.load();
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+            } catch (error) {
+                document.getElementById('loading').innerHTML = 
+                    '<p style="color: red;">Помилка завантаження моделі. Перевірте підключення до інтернету.</p>';
+            }
+        }
+
+        async function setupCamera() {
+            video = document.getElementById('webcam');
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' },
+                    audio: false 
+                });
+                video.srcObject = stream;
+                
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        resolve(video);
+                    };
+                });
+            } catch (error) {
+                alert('Не вдалося отримати доступ до камери. Переконайтеся, що ви дали дозвіл.');
+                throw error;
+            }
+        }
+
+        async function detectObjects() {
+            if (!isDetecting) return;
+
+            const predictions = await model.detect(video);
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 3;
+            ctx.font = '18px Arial';
+            ctx.fillStyle = '#00ff00';
+
+            displayPredictions(predictions);
+
+            predictions.forEach(prediction => {
+                const [x, y, width, height] = prediction.bbox;
+                ctx.strokeRect(x, y, width, height);
+                
+                const label = objectTranslations[prediction.class] || prediction.class;
+                const confidence = (prediction.score * 100).toFixed(0);
+                const text = `${label} ${confidence}%`;
+                
+                ctx.fillStyle = '#00ff00';
+                ctx.fillRect(x, y - 25, ctx.measureText(text).width + 10, 25);
+                ctx.fillStyle = '#000';
+                ctx.fillText(text, x + 5, y - 7);
+            });
+
+            requestAnimationFrame(detectObjects);
+        }
+
+        function displayPredictions(predictions) {
+            const predictionsDiv = document.getElementById('predictions');
+            
+            if (predictions.length === 0) {
+                predictionsDiv.innerHTML = '<p style="color: #999;">Об\'єкти не знайдено</p>';
+                return;
+            }
+
+            predictionsDiv.innerHTML = predictions.map(pred => {
+                const label = objectTranslations[pred.class] || pred.class;
+                const confidence = (pred.score * 100).toFixed(1);
+                return `
+                    <div class="result-item">
+                        <div>
+                            <div class="result-label">${label}</div>
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" style="width: ${confidence}%"></div>
+                            </div>
+                        </div>
+                        <span class="result-confidence">${confidence}%</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            await setupCamera();
+            isDetecting = true;
+            detectObjects();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-block';
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            isDetecting = false;
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('startBtn').style.display = 'inline-block';
+            document.getElementById('stopBtn').style.display = 'none';
+        });
+
+        document.getElementById('uploadBtn').addEventListener('click', () => {
+            document.getElementById('uploadImage').click();
+        });
+
+        document.getElementById('uploadImage').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const img = new Image();
+                img.onload = async () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const predictions = await model.detect(img);
+                    displayPredictions(predictions);
+                    
+                    predictions.forEach(prediction => {
+                        const [x, y, width, height] = prediction.bbox;
+                        ctx.strokeStyle = '#00ff00';
+                        ctx.lineWidth = 3;
+                        ctx.strokeRect(x, y, width, height);
+                        
+                        const label = objectTranslations[prediction.class] || prediction.class;
+                        const confidence = (prediction.score * 100).toFixed(0);
+                        const text = `${label} ${confidence}%`;
+                        
+                        ctx.font = '18px Arial';
+                        ctx.fillStyle = '#00ff00';
+                        ctx.fillRect(x, y - 25, ctx.measureText(text).width + 10, 25);
+                        ctx.fillStyle = '#000';
+                        ctx.fillText(text, x + 5, y - 7);
+                    });
+                };
+                img.src = URL.createObjectURL(file);
+            }
+        });
+
+        loadModel();
+    </script>
+</body>
+</html>

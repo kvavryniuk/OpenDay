@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Розпізнавання кольорів</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+</head>
+<body>
+    <header>
+        <h1>🎨 Розпізнавання кольорів</h1>
+        <p>Покажіть кольоровий об'єкт камері або завантажте фото</p>
+    </header>
+
+    <nav class="main-nav">
+        <a href="index.html" class="nav-link">Головна</a>
+        <a href="object-detection.html" class="nav-link">Розпізнавання об'єктів</a>
+        <a href="color-recognition.html" class="nav-link active">Розпізнавання кольорів</a>
+        <a href="pose-detection.html" class="nav-link">Розпізнавання пози</a>
+        <a href="digit-recognition.html" class="nav-link">Розпізнавання цифр</a>
+    </nav>
+
+    <main class="container">
+        <div class="demo-container">
+            <div class="controls">
+                <button id="startBtn" class="btn">📷 Увімкнути камеру</button>
+                <button id="stopBtn" class="btn" style="display: none;">⏸️ Зупинити</button>
+                <input type="file" id="uploadImage" accept="image/*" style="display: none;">
+                <button id="uploadBtn" class="btn">🖼️ Завантажити фото</button>
+                <button id="analyzeBtn" class="btn" style="display: none;">🔍 Аналізувати колір</button>
+            </div>
+
+            <div class="video-container">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="canvas" style="display: none;"></canvas>
+            </div>
+
+            <div id="colorDisplay" class="color-display" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <span id="colorName">Натисніть кнопку для початку</span>
+            </div>
+
+            <div class="results">
+                <h3>Аналіз кольору:</h3>
+                <div id="colorInfo">
+                    <div style="text-align: center; color: #999;">
+                        <p>Тут з'явиться детальна інформація про розпізнаний колір</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section class="info-section">
+            <h2>Як це працює?</h2>
+            <p style="text-align: center; color: #666; margin-bottom: 1rem;">
+                Алгоритм аналізує пікселі зображення та визначає домінуючий колір, 
+                використовуючи RGB-значення та перетворення в простір кольорів HSV.
+            </p>
+            <div class="info-grid">
+                <div class="info-item">
+                    <h3>RGB → HSV</h3>
+                    <p>Конвертація кольорів для кращого розпізнавання</p>
+                </div>
+                <div class="info-item">
+                    <h3>Аналіз відтінку</h3>
+                    <p>Визначення основного кольору за відтінком</p>
+                </div>
+                <div class="info-item">
+                    <h3>Насиченість</h3>
+                    <p>Оцінка яскравості та насиченості</p>
+                </div>
+                <div class="info-item">
+                    <h3>Результат</h3>
+                    <p>Назва кольору та RGB-значення</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Використовує алгоритми комп'ютерного зору для аналізу кольорів</p>
+    </footer>
+
+    <script>
+        let video;
+        let canvas;
+        let ctx;
+        let stream;
+
+        const colorNames = {
+            red: { name: 'Червоний', emoji: '🔴', range: [0, 15, 345, 360] },
+            orange: { name: 'Помаранчевий', emoji: '🟠', range: [15, 45] },
+            yellow: { name: 'Жовтий', emoji: '🟡', range: [45, 65] },
+            lime: { name: 'Салатовий', emoji: '🟢', range: [65, 85] },
+            green: { name: 'Зелений', emoji: '💚', range: [85, 150] },
+            cyan: { name: 'Блакитний', emoji: '🩵', range: [150, 195] },
+            blue: { name: 'Синій', emoji: '🔵', range: [195, 255] },
+            purple: { name: 'Фіолетовий', emoji: '🟣', range: [255, 290] },
+            magenta: { name: 'Пурпурний', emoji: '🩷', range: [290, 320] },
+            pink: { name: 'Рожевий', emoji: '💗', range: [320, 345] }
+        };
+
+        function rgbToHsv(r, g, b) {
+            r /= 255;
+            g /= 255;
+            b /= 255;
+
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const diff = max - min;
+
+            let h = 0;
+            const s = max === 0 ? 0 : diff / max;
+            const v = max;
+
+            if (diff !== 0) {
+                if (max === r) {
+                    h = ((g - b) / diff + (g < b ? 6 : 0)) / 6;
+                } else if (max === g) {
+                    h = ((b - r) / diff + 2) / 6;
+                } else {
+                    h = ((r - g) / diff + 4) / 6;
+                }
+            }
+
+            return [h * 360, s * 100, v * 100];
+        }
+
+        function getColorName(h, s, v) {
+            // Якщо насиченість дуже низька - це відтінки сірого
+            if (s < 10) {
+                if (v > 80) return { name: 'Білий', emoji: '⚪' };
+                if (v < 20) return { name: 'Чорний', emoji: '⚫' };
+                return { name: 'Сірий', emoji: '⚪' };
+            }
+
+            // Визначаємо колір за відтінком
+            for (const [key, color] of Object.entries(colorNames)) {
+                if (color.range.length === 4) {
+                    // Для червоного (wraparound)
+                    if (h >= color.range[0] && h <= color.range[1] || 
+                        h >= color.range[2] && h <= color.range[3]) {
+                        return color;
+                    }
+                } else {
+                    if (h >= color.range[0] && h < color.range[1]) {
+                        return color;
+                    }
+                }
+            }
+
+            return { name: 'Невизначений', emoji: '❓' };
+        }
+
+        function analyzeColor(imageData) {
+            const data = imageData.data;
+            let r = 0, g = 0, b = 0;
+            const sampleSize = 100; // Беремо кожен 100-й піксель для швидкості
+            let count = 0;
+
+            for (let i = 0; i < data.length; i += 4 * sampleSize) {
+                r += data[i];
+                g += data[i + 1];
+                b += data[i + 2];
+                count++;
+            }
+
+            r = Math.round(r / count);
+            g = Math.round(g / count);
+            b = Math.round(b / count);
+
+            const [h, s, v] = rgbToHsv(r, g, b);
+            const color = getColorName(h, s, v);
+
+            return {
+                rgb: { r, g, b },
+                hsv: { h: h.toFixed(0), s: s.toFixed(0), v: v.toFixed(0) },
+                name: color.name,
+                emoji: color.emoji
+            };
+        }
+
+        function displayColorInfo(colorData) {
+            const { rgb, hsv, name, emoji } = colorData;
+            const bgColor = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+            
+            const colorDisplay = document.getElementById('colorDisplay');
+            colorDisplay.style.background = bgColor;
+            
+            // Визначаємо, чи потрібен білий чи чорний текст
+            const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+            const textColor = brightness > 128 ? '#000' : '#fff';
+            colorDisplay.style.color = textColor;
+            
+            document.getElementById('colorName').textContent = `${emoji} ${name}`;
+
+            const colorInfo = document.getElementById('colorInfo');
+            colorInfo.innerHTML = `
+                <div class="result-item">
+                    <div class="result-label">Назва кольору</div>
+                    <div class="result-confidence">${emoji} ${name}</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">RGB значення</div>
+                    <div class="result-confidence">R:${rgb.r} G:${rgb.g} B:${rgb.b}</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">HSV значення</div>
+                    <div class="result-confidence">H:${hsv.h}° S:${hsv.s}% V:${hsv.v}%</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">HEX код</div>
+                    <div class="result-confidence">#${rgb.r.toString(16).padStart(2, '0')}${rgb.g.toString(16).padStart(2, '0')}${rgb.b.toString(16).padStart(2, '0')}</div>
+                </div>
+            `;
+        }
+
+        async function setupCamera() {
+            video = document.getElementById('webcam');
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' },
+                    audio: false 
+                });
+                video.srcObject = stream;
+                
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        resolve(video);
+                    };
+                });
+            } catch (error) {
+                alert('Не вдалося отримати доступ до камери. Переконайтеся, що ви дали дозвіл.');
+                throw error;
+            }
+        }
+
+        function captureAndAnalyze() {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const colorData = analyzeColor(imageData);
+            displayColorInfo(colorData);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            await setupCamera();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'inline-block';
+            document.getElementById('analyzeBtn').style.display = 'inline-block';
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            document.getElementById('startBtn').style.display = 'inline-block';
+            document.getElementById('stopBtn').style.display = 'none';
+            document.getElementById('analyzeBtn').style.display = 'none';
+        });
+
+        document.getElementById('analyzeBtn').addEventListener('click', captureAndAnalyze);
+
+        document.getElementById('uploadBtn').addEventListener('click', () => {
+            document.getElementById('uploadImage').click();
+        });
+
+        document.getElementById('uploadImage').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const img = new Image();
+                img.onload = () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const colorData = analyzeColor(imageData);
+                    displayColorInfo(colorData);
+                    
+                    // Показуємо зображення у відео елементі
+                    video.style.display = 'block';
+                    video.poster = URL.createObjectURL(file);
+                };
+                img.src = URL.createObjectURL(file);
+            }
+        });
+    </script>
+</body>
+</html>
